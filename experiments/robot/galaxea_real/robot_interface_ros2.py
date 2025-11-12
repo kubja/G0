@@ -1,3 +1,5 @@
+# robot_interface_ros2.py
+
 from collections import deque
 from dataclasses import dataclass, field
 from functools import partial
@@ -9,13 +11,8 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from cv_bridge import CvBridge
-from enum import Enum
-
-from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import CompressedImage, JointState
-from vlm_node.msg import VLMPubMsg
-
-from utils import log_utils, msg_utils  # keep your existing utils
+from geometry_msgs.msg import TwistStamped
 from loguru import logger  # optional; you can use self.get_logger() instead
 
 R1_LITE = "R1_LITE"
@@ -84,11 +81,11 @@ class GalaxeaInterface(Node):
 
         logger.info("Initialized ROS2 node [galaxea_real]")
         self.br = CvBridge()
-        self.inputs_dict = {}
+        self.inputs_dict = {}  # Stores deque for each topic
         self.last_camera_time = 0.0
         self.lastest_instruction = ""
-        self.publishers = {}
-        self.subscribers = {}
+        self._pubs = {}
+        self._subs = {}
 
         self._init_topics()
         time.sleep(1)
@@ -97,6 +94,7 @@ class GalaxeaInterface(Node):
     # Callbacks
     # ------------------------------
     def _camera_callback(self, msg: CompressedImage, que: deque, topic: str):
+        logger.info(f"[Callback] Camera topic triggered: {topic}")
         img_cv_bgr = self.br.compressed_imgmsg_to_cv2(msg)
         if len(img_cv_bgr.shape) == 3 and img_cv_bgr.shape[2] == 3:
             img_cv = cv2.cvtColor(img_cv_bgr, cv2.COLOR_BGR2RGB)
@@ -109,6 +107,7 @@ class GalaxeaInterface(Node):
         que.append(dict(data=img_cv, message_time=msg_time))
 
     def _joint_states_callback(self, msg: JointState, que: deque, topic: str):
+        logger.info(f"[Callback] JointState topic triggered: {topic}")
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         que.append(dict(
             position=np.array(msg.position, dtype=np.float32),
@@ -116,26 +115,11 @@ class GalaxeaInterface(Node):
             message_time=msg_time
         ))
 
-    def _vlm_instruction_callback(self, msg: VLMPubMsg):
-        if not msg.lower_prompt_list:
-            return
-        low_level_instruction = msg.lower_prompt_list[0]
-        self.lastest_instruction = f"[low]:{low_level_instruction}"
-
     # ------------------------------
     # Topic Setup
     # ------------------------------
     def _init_topics(self):
         config_topic = self.config.topic
-
-        # VLM subscriber
-        self.create_subscription(
-            VLMPubMsg,
-            "vlm_node/out2vla",
-            self._vlm_instruction_callback,
-            10
-        )
-        logger.info("Subscribed to VLM instruction topic.")
 
         # JointState & Image subscribers
         for topic_dict, topic_type, topic_callback, deque_maxlen in zip(
@@ -162,14 +146,14 @@ class GalaxeaInterface(Node):
                 torso_flag = "torso" not in topic or self.config.with_torso
                 chassis_flag = "chassis" not in topic or self.config.with_chassis
                 if torso_flag and chassis_flag:
-                    self.publishers[topic] = self.create_publisher(topic_type, topic_name, 10)
+                    self._pubs[topic] = self.create_publisher(topic_type, topic_name, 10)
                     logger.info(f"Publisher {topic} created on {topic_name}")
 
     # ------------------------------
     # Data Lookup / Sync
     # ------------------------------
     def find_nearest_message(self, topic_name, timestamp):
-        min_diff = 100.0
+        min_diff = float("inf")
         nearest_msg = None
         data_queue = list(self.inputs_dict[topic_name])
         for msg in data_queue:
@@ -182,7 +166,10 @@ class GalaxeaInterface(Node):
     def lookup_by_camera_under_tolerance(self, camera_timestamp, threshold):
         msgs = {}
         for topic, que in self.inputs_dict.items():
-            if topic == "head":
+            if topic == "head_rgb":
+                if len(que) == 0:
+                    logger.warning(f"No head camera messages yet")
+                    return None
                 msgs[topic] = que[-1]
             else:
                 msg = self.find_nearest_message(topic, camera_timestamp)
@@ -198,7 +185,7 @@ class GalaxeaInterface(Node):
         return msgs
 
     def get_observations(self):
-        if len(self.inputs_dict["head_rgb"]) == 0:
+        if "head_rgb" not in self.inputs_dict or len(self.inputs_dict["head_rgb"]) == 0:
             logger.warning("No camera_head message")
             return None
 
@@ -221,17 +208,19 @@ class GalaxeaInterface(Node):
     # Action Publishing
     # ------------------------------
     def _publish_action(self, action_dict):
+        from utils import msg_utils_ros2  # keep your existing utils
+
         config_topic = self.config.topic
         for topic_dict, topic_fn in zip(
             [config_topic.joint_state_output, config_topic.twist_output],
-            [msg_utils.act_to_joint, msg_utils.act_to_twist],
+            [msg_utils_ros2.act_to_joint, msg_utils_ros2.act_to_twist],
         ):
             for topic, _ in topic_dict.items():
                 if topic in action_dict:
                     if not self.config.dry_run:
                         msg = topic_fn(action_dict[topic],
                                        self.config.torso_chassis_thres if 'torso' in topic or 'chassis' in topic else None)
-                        self.publishers[topic].publish(msg)
+                        self._pubs[topic].publish(msg)
 
     # ------------------------------
     # Step / Loop
@@ -244,32 +233,3 @@ class GalaxeaInterface(Node):
 
     def get_latest_instruction(self):
         return self.lastest_instruction
-
-
-# ------------------------------
-# Entry point
-# ------------------------------
-def main(args=None):
-    rclpy.init(args=args)
-    interface = GalaxeaInterface(GalaxeaInferfaceConfig())
-
-    try:
-        for i in range(10):
-            obs = interface.get_observations()
-            if obs is not None:
-                for k, v in obs.items():
-                    if 'data' in v:
-                        print(k, v['data'].shape, end=" ")
-                    else:
-                        print(k, v['position'].shape, v['velocity'].shape, end=" ")
-                print("")
-            time.sleep(0.1)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        interface.destroy_node()
-        rclpy.shutdown()
-
-
-if __name__ == "__main__":
-    main()
