@@ -5,12 +5,12 @@ import time
 import torch
 import tyro
 
-from robot_interface import GalaxeaInferfaceConfig
+from robot_interface_ros2 import GalaxeaInferfaceConfig
 from galaxea_real_utils import get_wrapped_env
 
 from experiments.policy_r1_lite import PiZeroPolicy
 
-INSTRUCTION_PATH = Path(__file__).resolve().parent / "instruction.txt"
+INSTRUCTION_PATH = str(run_dir / "instruction.txt")
 
 def main(interface_config: GalaxeaInferfaceConfig, run_dir: Path, ckpt_id: int, num_action_steps: int = 16, dtype: str = 'fp32'):
     env = get_wrapped_env(interface_config)
