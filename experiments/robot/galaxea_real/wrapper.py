@@ -4,6 +4,7 @@ from robot_interface_ros2 import GalaxeaInterface
 class Wrapper:
     def __init__(self, interface: GalaxeaInterface):
         self.interface = interface
+        self.node = interface
 
     def step(self, action):
         action_dict = {}

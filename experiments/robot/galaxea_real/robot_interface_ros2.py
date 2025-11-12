@@ -94,7 +94,7 @@ class GalaxeaInterface(Node):
     # Callbacks
     # ------------------------------
     def _camera_callback(self, msg: CompressedImage, que: deque, topic: str):
-        logger.info(f"[Callback] Camera topic triggered: {topic}")
+        #logger.info(f"[Callback] Camera topic triggered: {topic}")
         img_cv_bgr = self.br.compressed_imgmsg_to_cv2(msg)
         if len(img_cv_bgr.shape) == 3 and img_cv_bgr.shape[2] == 3:
             img_cv = cv2.cvtColor(img_cv_bgr, cv2.COLOR_BGR2RGB)
@@ -107,7 +107,7 @@ class GalaxeaInterface(Node):
         que.append(dict(data=img_cv, message_time=msg_time))
 
     def _joint_states_callback(self, msg: JointState, que: deque, topic: str):
-        logger.info(f"[Callback] JointState topic triggered: {topic}")
+        #logger.info(f"[Callback] JointState topic triggered: {topic}")
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         que.append(dict(
             position=np.array(msg.position, dtype=np.float32),
