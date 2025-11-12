@@ -1,4 +1,4 @@
-from robot_interface import GalaxeaInferfaceConfig, GalaxeaInterface
+from robot_interface_ros2 import GalaxeaInferfaceConfig, GalaxeaInterface
 from wrapper import Wrapper
 
 def get_wrapped_env(config: GalaxeaInferfaceConfig):

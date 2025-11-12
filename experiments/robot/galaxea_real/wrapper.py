@@ -1,5 +1,5 @@
 import numpy as np
-from robot_interface import GalaxeaInterface
+from robot_interface_ros2 import GalaxeaInterface
 
 class Wrapper:
     def __init__(self, interface: GalaxeaInterface):
