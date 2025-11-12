@@ -69,9 +69,9 @@ def load(
     # make a fake variable with attribute so that we can bypass the check in the model
     from collections import namedtuple
     model = namedtuple('model', ['vision_tower', 'language_model', 'multi_modal_projector'])(None, None, None)
-    model_config = PaliGemmaConfig.from_pretrained('google/paligemma-3b-pt-224', local_files_only=True)
+    model_config = PaliGemmaConfig.from_pretrained('google/paligemma-3b-pt-224', local_files_only=False)
         
-    processor = PaliGemmaProcessor.from_pretrained(HF_HUB_REPO, token=hf_token, local_files_only=True)
+    processor = PaliGemmaProcessor.from_pretrained(HF_HUB_REPO, token=hf_token, local_files_only=False)
     
     # Load VLM using `from_pretrained` (clobbers HF syntax... eventually should reconcile)
     logger.info(f"Loading VLA [bold blue]{model_cfg['model_id']}[/] from Checkpoint")
@@ -140,8 +140,8 @@ def load_from_checkpoint(
     HF_HUB_REPO = f"google/{model_kwargs['model_cfg']['vla_name']}"
     load_inside = model_kwargs['model_cfg'].get('load_inside', False)
 
-    model_config = PaliGemmaConfig.from_pretrained('google/paligemma-3b-pt-224', local_files_only=True)
-    processor = PaliGemmaProcessor.from_pretrained(HF_HUB_REPO, token=hf_token, local_files_only=True)
+    model_config = PaliGemmaConfig.from_pretrained('google/paligemma-3b-pt-224', local_files_only=False)
+    processor = PaliGemmaProcessor.from_pretrained(HF_HUB_REPO, token=hf_token, local_files_only=False)
 
     # Load VLM using `from_pretrained` (clobbers HF syntax... eventually should reconcile)
     logger.info(f"Loading [bold blue]Galaxea VLA[/] from Checkpoint")
