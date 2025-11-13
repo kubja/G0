@@ -154,7 +154,8 @@ class PiZeroPolicy:
                 image = tf.image.resize(image, self.img_resize_size, method="lanczos3", antialias=True)
                 image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.uint8)
                 imgs[cam].append(image.numpy())
-
+            print(f"imgs {cam} shape: {imgs[cam].shape}")
+        
         ################# Proprio #################
         proprios = []
         for i in range(self.To):
@@ -252,12 +253,12 @@ class PiZeroPolicy:
             action_torso, action_chassis
         ], axis=-1)
         print("---------------Actions-----------------")
-        print(":", action_arm_left[30:31,:])
-        print("Gripper arm left:", action_gripper_left[30:31,:])
-        print("Joint position arm right:", action_arm_right[30:31,:])
-        print("Gripper arm right:", action_gripper_right[30:31,:])
-        print("joint_position_torso:", action_torso[30:31,:])
-        print("base_velocity:", action_chassis[30:31,:])
+        #print(":", action_arm_left[30:31,:])
+        #print("Gripper arm left:", action_gripper_left[30:31,:])
+        print("Joint position arm right:", action_arm_right[:,:])
+        #print("Gripper arm right:", action_gripper_right[30:31,:])
+        #print("joint_position_torso:", action_torso[30:31,:])
+        #print("base_velocity:", action_chassis[30:31,:])
 
         return actions
 

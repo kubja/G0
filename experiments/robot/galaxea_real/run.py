@@ -3,6 +3,7 @@ import numpy as np
 import time
 import torch
 import threading
+import queue
 import tyro
 import rclpy  # ROS 2 import
 
@@ -15,7 +16,7 @@ def main(
     interface_config: GalaxeaInferfaceConfig,
     run_dir: Path,
     ckpt_id: int,
-    num_action_steps: int = 16,
+    num_action_steps: int = 32,
     dtype: str = 'fp32'
 ):
     # Initialize ROS 2
@@ -58,32 +59,75 @@ def main(
         )
 
         # -----------------------------
-        # Main control loop
+        # Parallel Inference Setup
         # -----------------------------
+        action_queue = queue.Queue(maxsize=1)
+        stop_flag = threading.Event()
+
+        def inference_thread():
+            nonlocal obs, last_action
+            print("Inference thread started.")
+            while not stop_flag.is_set():
+                instruction = INSTRUCTION_PATH.read_text().strip() if INSTRUCTION_PATH.exists() else ""
+                if instruction in ['', 'nothing']:
+                    time.sleep(0.1)
+                    continue
+
+                obs_copy = obs.copy()
+                obs_copy["last_action"] = last_action
+
+                try:
+                    with torch.inference_mode():
+                        new_action = policy.infer(obs=obs_copy, instruction=instruction)
+                except Exception as e:
+                    print(f"[Inference Thread] Error: {e}")
+                    time.sleep(0.5)
+                    continue
+
+                # Keep only the newest action
+                if not action_queue.empty():
+                    try:
+                        action_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                action_queue.put(new_action)
+
+        infer_thread = threading.Thread(target=inference_thread, daemon=True)
+        infer_thread.start()
+
+        # -----------------------------
+        # Main Control Loop
+        # -----------------------------
+        print("Starting control loop...")
+
         while not env.is_close():
-            if obs is None:
-                time.sleep(0.1)
-                obs = env.get_observations()
-                continue
+            try:
+                if obs is None:
+                    time.sleep(0.1)
+                    obs = env.get_observations()
+                    continue
 
-            # Read instruction safely
-            instruction = INSTRUCTION_PATH.read_text().strip() if INSTRUCTION_PATH.exists() else ""
-            print ("******Instruction is: " + instruction)
+                # Try to get latest action (non-blocking)
+                if not action_queue.empty():
+                    action = action_queue.get_nowait()
+                else:
+                    action = [last_action] * num_action_steps  # fallback
 
-            obs["last_action"] = last_action
-            if instruction in ['', 'nothing']:
-                obs = None
-                continue
+                for i in range(num_action_steps):
+                    obs = env.step(action[i])
+                    last_action = action[i]
 
-            with torch.inference_mode():
-                action = policy.infer(obs=obs, instruction=instruction)
-
-            for i in range(num_action_steps):
-                obs = env.step(action[i])
-                last_action = action[i]
+            except KeyboardInterrupt:
+                print("Interrupted by user.")
+                break
+            except Exception as e:
+                print(f"[Control Loop] Error: {e}")
+                time.sleep(0.2)
 
     finally:
-        # Clean shutdown
+        # Signal stop and shutdown
+        stop_flag.set()
+        infer_thread.join(timeout=2.0)
         rclpy.shutdown()
         print("ROS 2 shutdown complete.")
 
