@@ -154,7 +154,6 @@ class PiZeroPolicy:
                 image = tf.image.resize(image, self.img_resize_size, method="lanczos3", antialias=True)
                 image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.uint8)
                 imgs[cam].append(image.numpy())
-            print(f"imgs {cam} shape: {imgs[cam].shape}")
         
         ################# Proprio #################
         proprios = []
