@@ -233,3 +233,10 @@ class GalaxeaInterface(Node):
 
     def get_latest_instruction(self):
         return self.lastest_instruction
+
+    def is_close(self) -> bool:
+        """
+        Returns True if the robot interface should stop or is shutting down.
+        """
+        # Example: check if ROS node is shutting down or some internal flag
+        return not rclpy.ok()  # True if ROS2 context is shut down
