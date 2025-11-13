@@ -86,45 +86,62 @@ class PiZeroPolicy:
     ):
         """
         Args:
-            obs: dictionary or queue of dictionaries of observations, including 
-                "head_rgb": (h, w, 3),
-                "left_hand_rgb": (h, w, 3), optional
-                "right_hand_rgb": (h, w, 3), optional
-                "/motion_control/pose_ee_arm_left": (7,),
-                "/motion_control/pose_ee_arm_right": (7,),
-                "/hdas/feedback_gripper_left": scalar,
-                "/hdas/feedback_gripper_right": scalar,
-            instruction: string instruction, for task053 should be "place the gray block in the middle."
-            binarize_gripper: bool, whether to binarize gripper action to 0 or 1, default False.
-        
+            obs: dictionary or list of dictionaries of observations
+            instruction: string instruction
+            binarize_gripper: bool, whether to binarize gripper action to 0 or 1
         Returns:
             action: (Ta, action_dim)
         """
 
-        # some preprocessing
+        # ensure obs is a list of dicts
         if isinstance(obs, dict):
             obs = [obs]
         else:
-            assert isinstance(obs, list)
+            assert isinstance(obs, list), f"Expected list of dicts, got {type(obs)}"
         assert len(obs) == self.To, f"Expected {self.To} frame of observations, got {len(obs)}"
-        
+
+        # preprocess obs
         new_obs = []
         for ob in obs:
+            ob_processed = {}
             for k, v in ob.items():
+                # handle torch.Tensor
                 if isinstance(v, torch.Tensor):
                     v = v.squeeze()
                     if str(v.device) != "cpu":
                         v = v.cpu()
-                    ob[k] = v.numpy()
+                    ob_processed[k] = v.numpy()
+                
+                # handle list
                 elif isinstance(v, list):
-                    ob[k] = np.array(v)
+                    ob_processed[k] = np.array(v)
+                
+                # handle nested dicts (ROS2)
+                elif isinstance(v, dict):
+                    # if the dict contains 'position' or 'data', extract that
+                    if "position" in v:
+                        ob_processed[k] = np.array(v["position"], dtype=np.float32)
+                    elif "data" in v:
+                        ob_processed[k] = np.array(v["data"], dtype=np.float32)
+                    else:
+                        raise TypeError(f"Obs[{k}] is a dict but no 'position' or 'data' key found: {v}")
+                
+                # handle scalar numbers
+                elif isinstance(v, (float, int)):
+                    ob_processed[k] = np.array(v, dtype=np.float32)
+                
+                # handle numpy arrays
+                elif isinstance(v, np.ndarray):
+                    ob_processed[k] = v
+                
                 else:
-                    assert isinstance(v, np.ndarray)
-            new_obs.append(ob)
+                    raise TypeError(f"Obs[{k}] has unsupported type {type(v)}")
+            
+            new_obs.append(ob_processed)
+        
         obs = new_obs
 
         ################# Images #################
-        # we only need to resize the images, center crop is done in the model
         imgs = {}
         for cam in self.camera_views:
             imgs[cam] = []
@@ -132,47 +149,47 @@ class PiZeroPolicy:
                 image = ob[cam]
                 if image.shape[-1] != 3:
                     image = np.transpose(image, (1, 2, 0)) # from (c, h, w) to (h, w, c)
-                
                 image = tf.image.convert_image_dtype(image, tf.uint8)
                 image = tf.image.resize(image, self.img_resize_size, method="lanczos3", antialias=True)
                 image = tf.cast(tf.clip_by_value(tf.round(image), 0, 255), tf.uint8)
                 imgs[cam].append(image.numpy())
-        
+
         ################# Proprio #################
-        # 1. construct proprio
         proprios = []
         for i in range(self.To):
-            joint_position_arm_left = obs[i]["/hdas/feedback_arm_left/position"]
-            joint_position_arm_right = obs[i]["/hdas/feedback_arm_right/position"]
+            joint_position_arm_left = obs[i]["/hdas/feedback_arm_left"]  # 6 values for left arm position
+            joint_position_arm_right = obs[i]["/hdas/feedback_arm_right"]  # 6 values for right arm position
 
-            joint_velocity_arm_left = obs[i]["/hdas/feedback_arm_left/velocity"]
-            joint_velocity_arm_right = obs[i]["/hdas/feedback_arm_right/velocity"]
-
-            gripper_state_left = obs[i]["/hdas/feedback_gripper_left"]
+            gripper_state_left = obs[i]["/hdas/feedback_gripper_left"]  # 1 value for left gripper state
             gripper_state_left = gripper_state_left.item() if isinstance(gripper_state_left, np.ndarray) else float(gripper_state_left)
-            gripper_state_right = obs[i]["/hdas/feedback_gripper_right"]
+            gripper_state_right = obs[i]["/hdas/feedback_gripper_right"]  # 1 value for right gripper state
             gripper_state_right = gripper_state_right.item() if isinstance(gripper_state_right, np.ndarray) else float(gripper_state_right)
 
-            joint_position_torso = obs[i]["/hdas/feedback_torso"]
-            base_velocity = obs[i]["/hdas/feedback_chassis"]
+            joint_position_torso = obs[i]["/hdas/feedback_torso"]  # 4 values for torso joint positions
+            base_velocity = obs[i]["/hdas/feedback_chassis"]  # 6 values (x, y, z, yaw, pitch, roll)
 
-            last_action = obs[i]["last_action"]
-           
+            # Construct proprioception vector
             p = np.concatenate([
-                joint_position_arm_left, 
-                # joint_velocity_arm_left, 
-                [gripper_state_left], 
-                joint_position_arm_right,
-                # joint_velocity_arm_right, 
-                [gripper_state_right],
-                joint_position_torso,
-                base_velocity,
+                joint_position_arm_left[:6],  # 6 values for left arm position
+                [gripper_state_left],     # 1 value for left gripper state
+                joint_position_arm_right[:6], # 6 values for right arm position
+                [gripper_state_right],    # 1 value for right gripper state
+                joint_position_torso,     # 4 values for torso joint positions
+                base_velocity,        # 3 values for chassis (x, y, yaw)
             ])
+            print("Joint position arm left:", joint_position_arm_left)
+            print("Gripper arm left:", gripper_state_left)
+            print("Joint position arm right:", joint_position_arm_right)
+            print("Gripper arm right:", gripper_state_right)
+            print("joint_position_torso:", joint_position_torso)
+            print("base_velocity:", base_velocity)
+            print(f"Proprio shape: {p.shape}")
+            
             proprios.append(p)
 
         ################# Forward #################
         if self.client is not None:
-            
+            # websocket inference
             while True:
                 try:
                     actions = self.client.infer(
@@ -209,8 +226,8 @@ class PiZeroPolicy:
                 center_crop=center_crop,
                 autocast_dtype=self.dtype
             )
-            
-        # 4. denormalize grippers
+
+        # denormalize grippers
         action_arm_left = actions[:, :6]
         action_gripper_left = actions[:, 6:7]
         action_arm_right = actions[:, 7:13]
@@ -223,18 +240,18 @@ class PiZeroPolicy:
         if binarize_gripper:
             action_gripper_left = (action_gripper_left > 0.5).astype(np.float32)
             action_gripper_right = (action_gripper_right > 0.5).astype(np.float32)
-        
-        # see prismatic.vla.datasets.rlds.oxe.transforms.galaxea_dataset_transform
-        action_gripper_left = action_gripper_left * (100.0 - 0.0) + 0.0 
-        action_gripper_right = action_gripper_right * (100.0 - 0.0) + 0.0
+
+        action_gripper_left = action_gripper_left * 100.0
+        action_gripper_right = action_gripper_right * 100.0
 
         actions = np.concatenate([
             action_arm_left, action_gripper_left,
             action_arm_right, action_gripper_right,
             action_torso, action_chassis
-        ], axis=-1) # (Ta, 26)
-        
+        ], axis=-1)
+
         return actions
+
 
 
 def quat_to_rpy(quaternion):

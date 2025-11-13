@@ -37,8 +37,8 @@ class R1LiteTopicsConfig:
     image_input: Dict[str, str] = field(
         default_factory=lambda: {
             "head_rgb": "/hdas/camera_head/left_raw/image_raw_color/compressed",
-            "left_rgb": "/hdas/camera_wrist_left/color/image_raw/compressed",
-            "right_rgb": "/hdas/camera_wrist_right/color/image_raw/compressed"
+            "left_rgb": "/hdas/camera_wrist_left/color/image_rect_raw/compressed",
+            "right_rgb": "/hdas/camera_wrist_right/color/image_rect_raw/compressed"
         }
     )
     joint_state_output: Dict[str, str] = field(
@@ -61,7 +61,7 @@ class R1LiteTopicsConfig:
 class GalaxeaInferfaceConfig:
     hardware: Literal['R1', 'R1_LITE'] = R1_LITE
     topic: R1LiteTopicsConfig = field(default_factory=R1LiteTopicsConfig)
-    msg_time_diff_threshold: float = 0.1
+    msg_time_diff_threshold: float = 1
     with_torso: bool = False
     with_chassis: bool = False
     camera_deque_length: int = 7

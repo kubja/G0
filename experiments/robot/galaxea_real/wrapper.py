@@ -7,7 +7,9 @@ class Wrapper:
         self.node = interface
 
     def step(self, action):
-        action_dict = {}
+        """
+        Convert flat action vector into dictionary, send to interface, and wrap observation.
+        """
         if action.shape[0] == (6 + 1) * 2 + 6 + 6:
             action_dict = dict(
                 left_arm=action[:6],
@@ -18,63 +20,81 @@ class Wrapper:
                 chassis=action[20:],
             )
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"Unexpected action size: {action.shape[0]}")
+        
         obs = self.interface.step(action_dict)
         return self.wrap_obs(obs)
 
     def wrap_obs(self, obs):
-        if obs is None: return obs
-        if 'torso' not in obs:
-            obs['torso'] = dict(position=np.zeros(4, dtype=np.float32))
-        if 'chassis' not in obs:
-            obs['chassis'] = dict(position=np.zeros(3, dtype=np.float32))
-        4 + 3 + 7 * 2 + 26
-        obs_dict = {}
-        for s, t in zip(
-            ["head_rgb", "left_hand_rgb", "right_hand_rgb"],
-            ["head_rgb", "left_rgb", "right_rgb"],
-        ):
-            obs_dict[s] = obs[t]["data"]
-        
-        for s, t in zip(
-            [
-                "/hdas/feedback_gripper_left", "/hdas/feedback_gripper_right",
-                "/hdas/feedback_torso", "/hdas/feedback_chassis"
-            ],
-            ["left_gripper", "right_gripper", "torso", "chassis"]
-        ):
-            obs_dict[s] = obs[t]["position"]    
+        """
+        Convert raw ROS2 messages into a consistent dictionary format.
+        Missing fields are filled with zeros.
+        """
+        if obs is None:
+            return None
 
-        for s, t in zip(
-            [
-                "/hdas/feedback_arm_left",
-                "/hdas/feedback_arm_right", 
-            ],
-            ["left_arm", "right_arm"]
-        ):
-            obs_dict[s + "/position"] = obs[t]["position"][:-1]
-            obs_dict[s + "/velocity"] = obs[t]["velocity"][:-1]
+        # Ensure all keys exist
+        defaults = {
+            "left_arm": {"position": np.zeros(6, dtype=np.float32), "velocity": np.zeros(6, dtype=np.float32)},
+            "right_arm": {"position": np.zeros(6, dtype=np.float32), "velocity": np.zeros(6, dtype=np.float32)},
+            "left_gripper": {"position": np.zeros(1, dtype=np.float32)},
+            "right_gripper": {"position": np.zeros(1, dtype=np.float32)},
+            "torso": {"position": np.zeros(6, dtype=np.float32)},
+            "chassis": {"position": np.zeros(3, dtype=np.float32)},
+            "head_rgb": {"data": np.zeros((480, 640, 3), dtype=np.uint8)},
+            "left_rgb": {"data": np.zeros((480, 640, 3), dtype=np.uint8)},
+            "right_rgb": {"data": np.zeros((480, 640, 3), dtype=np.uint8)}
+        }
+
+        for k, v in defaults.items():
+            if k not in obs or obs[k] is None:
+                obs[k] = v
+
+        # Map to expected observation dict
+        obs_dict = {
+            "head_rgb": obs["head_rgb"]["data"],
+            "left_hand_rgb": obs["left_rgb"]["data"],
+            "right_hand_rgb": obs["right_rgb"]["data"],
+            "/hdas/feedback_arm_left": {
+                "position": obs["left_arm"]["position"],
+                "velocity": obs["left_arm"]["velocity"]
+            },
+            "/hdas/feedback_arm_right": {
+                "position": obs["right_arm"]["position"],
+                "velocity": obs["right_arm"]["velocity"]
+            },
+            "/hdas/feedback_gripper_left": {"position": obs["left_gripper"]["position"]},
+            "/hdas/feedback_gripper_right": {"position": obs["right_gripper"]["position"]},
+            "/hdas/feedback_torso": {"position": obs["torso"]["position"]},
+            "/hdas/feedback_chassis": {"position": obs["chassis"]["position"]}
+        }
+
         return obs_dict
-    
+
     def get_observations(self):
         obs = self.interface.get_observations()
         return self.wrap_obs(obs)
-    
+
     def is_close(self):
         return self.interface.is_close()
 
     def get_latest_instruction(self):
         return self.interface.get_latest_instruction()
-    
+
+
 if __name__ == "__main__":
     import time
-    from robot_interface import GalaxeaInterface, GalaxeaInferfaceConfig
-    interface = GalaxeaInterface(GalaxeaInferfaceConfig())
-    interface = Wrapper(interface)
-    time.sleep(1)
-    for i in range(10):
-        time.sleep(0.1)
-        obs = interface.get_observations()
-        for k, v in obs.items():
-            print(k, v.shape)
+    from robot_interface_ros2 import GalaxeaInterface, GalaxeaInterfaceConfig
 
+    interface = GalaxeaInterface(GalaxeaInterfaceConfig())
+    wrapper = Wrapper(interface)
+    time.sleep(1)
+
+    for i in range(10):
+        obs = wrapper.get_observations()
+        for k, v in obs.items():
+            if isinstance(v, dict):
+                print(k, {subk: subv.shape for subk, subv in v.items()})
+            else:
+                print(k, v.shape)
+        time.sleep(0.1)

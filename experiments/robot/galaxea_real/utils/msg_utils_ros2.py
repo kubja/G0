@@ -2,14 +2,28 @@ import rclpy
 from rclpy.time import Time
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from sensor_msgs.msg import JointState
+import numpy as np
 
 
-def act_to_joint(action):
+def act_to_joint(action, dummy = None):
     """
-    Converts an action (list or np.array of joint positions) into a JointState message.
+    Converts an action (np.ndarray or list of joint positions) into a JointState message.
+    Ensures it's a flat list of Python floats.
     """
+    # Ensure action is a numpy array (in case it's a list)
+    if not isinstance(action, np.ndarray):
+        action = np.array(action, dtype=float)
+
+    # Flatten the action array just in case there are nested arrays
+    action = action.flatten()
+
+    # Convert each element to a pure Python float
+    action_list = [float(x) for x in action]
+
+    # Create ROS JointState message
     joint_msg = JointState()
-    joint_msg.position = action
+    joint_msg.position = action_list  # Assign the action as position in the message
+
     return joint_msg
 
 
