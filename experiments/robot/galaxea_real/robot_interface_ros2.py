@@ -62,8 +62,8 @@ class GalaxeaInferfaceConfig:
     hardware: Literal['R1', 'R1_LITE'] = R1_LITE
     topic: R1LiteTopicsConfig = field(default_factory=R1LiteTopicsConfig)
     msg_time_diff_threshold: float = 1
-    with_torso: bool = False
-    with_chassis: bool = False
+    with_torso: bool = True
+    with_chassis: bool = True
     camera_deque_length: int = 7
     deque_length: int = 200
     control_freq: int = 15

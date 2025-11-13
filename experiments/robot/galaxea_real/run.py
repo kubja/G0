@@ -68,6 +68,7 @@ def main(
 
             # Read instruction safely
             instruction = INSTRUCTION_PATH.read_text().strip() if INSTRUCTION_PATH.exists() else ""
+            print ("******Instruction is: " + instruction)
 
             obs["last_action"] = last_action
             if instruction in ['', 'nothing']:

@@ -30,6 +30,7 @@ import time
 
 class PiZeroPolicy:
     def __init__(self, cfg_file, checkpoint_path, seed=42, device="cuda", dtype="fp32", use_torch_compile=False):
+        print(f"Selecting dtype: {dtype}")
         cfg = OmegaConf.load(cfg_file)
         OmegaConf.resolve(cfg)
         self.cfg = cfg
@@ -177,6 +178,7 @@ class PiZeroPolicy:
                 joint_position_torso,     # 4 values for torso joint positions
                 base_velocity,        # 3 values for chassis (x, y, yaw)
             ])
+            print("---------------States-----------------")
             print("Joint position arm left:", joint_position_arm_left)
             print("Gripper arm left:", gripper_state_left)
             print("Joint position arm right:", joint_position_arm_right)
@@ -249,6 +251,13 @@ class PiZeroPolicy:
             action_arm_right, action_gripper_right,
             action_torso, action_chassis
         ], axis=-1)
+        print("---------------Actions-----------------")
+        print(":", action_arm_left[30:31,:])
+        print("Gripper arm left:", action_gripper_left[30:31,:])
+        print("Joint position arm right:", action_arm_right[30:31,:])
+        print("Gripper arm right:", action_gripper_right[30:31,:])
+        print("joint_position_torso:", action_torso[30:31,:])
+        print("base_velocity:", action_chassis[30:31,:])
 
         return actions
 
